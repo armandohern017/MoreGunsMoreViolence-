@@ -64,86 +64,89 @@ library(caret)
 confusionMatrix(testg$law, pred.class)
 
 
+#Import dataset with each variable being averaged out per state. This data preperations was done on Excel
+str(gunsAverage)
+rownames(gunsAverage)
+
+#Remove 'year' and 'law' labels
+gunsAverage = gunsAverage[,-1]
+gunsAverage = gunsAverage[,-12]
 
 
-#Logistics Regression
+#Set state values to rownames
+rownames(gunsAverage) = gunsAverage[,11]
+gunsAverage = gunsAverage[,-11]
 
-#Find the missing Values 
-# sum(is.na(x)) is the function gives the missing values in each of the columns
-sapply(guns, function(x) sum(is.na(x)))
+#Find Euclidean distance
+d = dist(gunsAverage, method = "euclidean")
+d
 
-#length(unique(x)) function gives the number of unique values in each of the columns
-sapply(guns, function(x) length(unique(x)))
+#Normalize the data
+data.norm = sapply(gunsAverage, scale)
+data.norm
 
-#Load the library into the memory of Rstudio
-library(Amelia)
-
-#missmap draws a map of the missingness in a dataset using the image function
-missmap(guns, main = "Missing values vs observed")
-
-#murder + robbery + prisoners + male + population + state + law
-# Choose the columns that you want to train your model on
-#murder, robbery, prisioners, male, population, state, law
-guns1train <- subset(guns,select=c(4,5,6,9,10,14))
-
-# Check if law is a factor
-is.factor(guns$law)
-
-# Check if Embarked is a factor
-is.factor(guns$male)
-
-#view number of classes in sex and embarked
-contrasts(guns$law)
-contrasts(guns$state)
-
-# Divide the data into training and testing data
-rownames(guns) <- NULL
-traing <- guns1train[1:940,]
-testg <- guns1train[941:1173,]
-
-#Build Regression Model
-model <- glm(law~.,family=binomial(link='logit'),data=traing)
-summary(model)
-
-#the function anova compares the following models in sequential order.
-anova(model, test="Chisq")
-
-#select independent variable rows from test dataset without the DV (Dependent Variable)
-newdata=subset(testg,select=c(1,2,3,4,5))
-
-#predict the test dataset values using the built model
-predicted <- predict(model,newdata,type='response')
-predicted
-
-#Round the predicted values
-predicted.round <- ifelse(predicted > 0.5,1,0)
-predicted.round
-
-#view model estimates or coeficients
-summary(model)$coef
-
-#find Odd ratios i.e., exponential estimates or coeficients
-exp(coefficients(model))
-
-#install package
-install.packages("InformationValue")
-
-#load package
-library(InformationValue)
-
-#Calculate Misclassification error
-misClasificError <- mean(predicted.round != testg$law)
-
-#Print Accuracy of your model
-print(paste('Accuracy',1-misClasificError))
-
-#Display confusion matrix
-confusionMatrix(test$law, predicted.round)
-
-#plot ROC curve
-plotROC(test$law, predicted)
+rownames(data.norm) = rownames(gunsAverage)
+data.norm
 
 
+#Cluster the gunsAverage dataset based on variables such as 'violent' and 'population'
+d.norm = dist(data.norm[,c(1,8)], method = "euclidean")         
+d.norm
+
+#Agglomerative Hierarchical clustering (Bottom Up)
+
+#Used to find preferred linkage method
+m <- c( "average", "single", "complete", "ward")
+names(m) <- c( "average", "single", "complete", "ward")
+
+ac <- function(x){
+  agnes(data.norm, method= x) $ac
+}
+
+install.packages("purrr")
+library(purrr)
+
+install.packages("cluster")
+library(cluster)
+
+map_dbl(m,ac)
+#Since the Ward's variance method having the highest coefficient, this is the best method to use to compare clusters. 
+
+Ag_hc1 = agnes(d.norm, method = "ward")
+pltree(Ag_hc1, cex = 0.6, hang = -1, main = "Dendrogram of agnes - State Clustering")
 
 
-#
+#Divisive Hierarchical clustering (Top Down)
+Di_hc2 <- diana(data.norm)
+
+#Finds the coefficient of Divisive. The one with the higher coefficient is the better cluster. In this case, it's the Agglomerative
+Di_hc2$dc
+Ag_hc1$ac
+
+cutree(as.hclust(Di_hc2), k = 4)
+pltree(Di_hc2, cex = 0.6, hang = -1, main = "Dendrogram of diana - State Clustering")
+
+install.packages("factoextra")
+library(factoextra)
+
+fviz_nbclust(df, FUN = hcut, method = "wss")
+
+HC <- hclust (d.norm, method = "ward.D2")
+HC          
+
+clusternum = cutree(HC, k=4)
+clusternum
+table(clusternum)
+
+plot(HC, cex = 0.6, hang = -1, main = "Dendrogram of HC - State Clustering") 
+
+rect.hclust(HC, k = 4, border = 2:5)
+
+abline(h = 2, col = 'red')
+
+
+fviz_cluster(list(data = gunsAverage, cluster = clusternum),
+             choose.vars = c(8,1),
+             show.clust.cent = FALSE,
+             main = "HC Clustering - Ward's Method") +
+  theme(legend.position = "none")
